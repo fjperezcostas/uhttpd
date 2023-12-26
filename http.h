@@ -11,7 +11,7 @@ typedef struct {
 
 HttpConfig *configHttpConnection(int, char*);
 int closeHttpConnection(HttpConfig*);
-int listenHttpRequest(HttpConfig*);
+void *listenHttpRequest(void*);
 char *getMimeType(const char*);
 
 #endif

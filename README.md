@@ -1,6 +1,6 @@
 # uhttpd #
 
-A micro HTTP single thread web server written in C for Linux systems.
+A micro HTTP web server written in C for Linux systems. It can handle up to 100 concurrent connections at same time.
 
 ## Clone and compile the project ##
 

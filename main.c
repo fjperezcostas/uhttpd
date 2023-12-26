@@ -1,19 +1,23 @@
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "http.h"
 
-// basic config
-#define PORT    8080
-#define HTDOCS  "./htdocs"
+// Basic config:
+#define PORT            8080
+#define NUM_THREADS     100
+#define HTDOCS          "./htdocs"
 
-volatile int quit = 0;
+HttpConfig *config;
+pthread_t threadPool[NUM_THREADS];    
 
-void shutdownServer();
+void cancelAllThreads();
 
 int main() {
-    HttpConfig *config;
+    int i;
 
-    if (signal(SIGINT, shutdownServer) == SIG_ERR) {
+    if (signal(SIGINT, cancelAllThreads) == SIG_ERR) {
         perror("Error setting up Ctrl+C signal handler");
         return -1;
     }
@@ -22,18 +26,25 @@ int main() {
         return -1;
     }
     printf("HTTP server listening on port %d, press Ctrl+C to abort.\n", PORT);
-    while (!quit) {
-        if (listenHttpRequest(config) < 0) {
-            perror("Error handling incomming HTTP request");
-        }
+    for (i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threadPool[i], NULL, listenHttpRequest, (void *)config);
     }
-    printf("Shutdown HTTP server...\n");
+    for (i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threadPool[i], NULL);
+    }
+    printf("Closing HTTP connection...\n");
     closeHttpConnection(config);
     printf("Done.\n");
-
+    printf("Bye!\n");
     return 0;
 }
 
-void shutdownServer() {
-    quit = 1;
+void cancelAllThreads() {
+    int i;
+
+    printf("Shut down all working threads...\n");
+    for (i = 0; i <  NUM_THREADS; i++) {
+        pthread_cancel(threadPool[i]);
+    }
+    printf("Done.\n");
 }

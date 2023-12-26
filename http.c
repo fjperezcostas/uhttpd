@@ -1,8 +1,10 @@
+#define _GNU_SOURCE
 #include "http.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #define BUFFER_SIZE         4096
@@ -45,44 +47,53 @@ int closeHttpConnection(HttpConfig *config) {
     return 0;
 }
 
-int listenHttpRequest(HttpConfig *config) {
+void *listenHttpRequest(void *arg) {
+    HttpConfig *config;
     const char* delimiter = " ";
     char requestBuffer[BUFFER_SIZE] = {0}, 
          responseBuffer[BUFFER_SIZE] = {0},
          filename[FILENAME_LENGTH] = {0},
-         *token;
+         *token,
+         *saveptr;
     int socketClient;
     size_t bytesRead;
     socklen_t addressLength;
 
+    config = (HttpConfig*)arg;
     addressLength = sizeof(config->address);
-    if ((socketClient = accept(config->socketDescriptor, (struct sockaddr*)&config->address, &addressLength)) < 0) {
-        return -1;
-    }
-    if (read(socketClient, requestBuffer, BUFFER_SIZE) < 0) {
-        close(socketClient);
-        return -1;
-    }        
-    token = strtok(requestBuffer, "\r\n");
-    printf("Receiving HTTP request: %s\n", token);
-    token = strtok(token, delimiter);
-    token = strtok(NULL, delimiter);
-    (strcmp(token, "/") == 0) ? sprintf(filename, "%s%s", config->htdocs, "/index.html") : sprintf(filename, "%s%s", config->htdocs, token);
-    FILE *file = fopen(filename, "rb");
-    if (!file) {
-        sprintf(responseBuffer, HTTP_404_TEMPLATE);
+    while (1) {
+        if ((socketClient = accept(config->socketDescriptor, (struct sockaddr*)&config->address, &addressLength)) < 0) {
+            perror("Error accepting incomming request");
+            return NULL;
+        }
+        if (read(socketClient, requestBuffer, BUFFER_SIZE) < 0) {
+            close(socketClient);
+            perror("Error reading incomming request");
+            return NULL;
+        }        
+        token = strtok_r(requestBuffer, "\r\n", &saveptr);
+        printf("[thread-%ld] Receiving HTTP request: %s\n", (pthread_t)pthread_self(), token);
+        token = strtok_r(token, delimiter, &saveptr);
+        token = strtok_r(NULL, delimiter, &saveptr);
+        (strcmp(token, "/") == 0) ? sprintf(filename, "%s%s", config->htdocs, "/index.html") : sprintf(filename, "%s%s", config->htdocs, token);
+        FILE *file = fopen(filename, "rb");
+        if (!file) {
+            sprintf(responseBuffer, HTTP_404_TEMPLATE);
+            write(socketClient, responseBuffer, strlen(responseBuffer));
+            close(socketClient);
+            printf("%s\n", filename);
+            perror("Error reading file");
+            return NULL;
+        }
+        sprintf(responseBuffer, HTTP_200_TEMPLATE, filename);
         write(socketClient, responseBuffer, strlen(responseBuffer));
+        while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), file)) > 0) {
+            write(socketClient, responseBuffer, bytesRead);
+        }
+        fclose(file);
         close(socketClient);
-        return -1;
-    }
-    sprintf(responseBuffer, HTTP_200_TEMPLATE, getMimeType(filename));
-    write(socketClient, responseBuffer, strlen(responseBuffer));
-    while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), file)) > 0) {
-        write(socketClient, responseBuffer, bytesRead);
-    }
-    fclose(file);
-    close(socketClient);
-    return 0;
+    }    
+    return NULL;
 }
 
 char *getMimeType(const char *filename) {

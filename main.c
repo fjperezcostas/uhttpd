@@ -1,39 +1,53 @@
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "http.h"
 
-// basic config
-#define PORT    8080
-#define HTDOCS  "./htdocs"
+// Basic config:
+#define PORT            8080
+#define NUM_THREADS     25              // Size of threadpool, feel free to configure to fit your hardware requierements
+#define HTDOCS          "./htdocs"
 
-volatile int quit = 0;
+void cancelAllThreads();
 
-void shutdownServer();
+pthread_t threadPool[NUM_THREADS];
 
 int main() {
     HttpConfig *config;
+    int i;
 
-    if (signal(SIGINT, shutdownServer) == SIG_ERR) {
-        perror("Error setting up Ctrl+C signal handler");
+    if (signal(SIGINT, cancelAllThreads) == SIG_ERR) {
+        perror("[ERROR] Error setting up Ctrl+C signal handler");
         return -1;
     }
     if ((config = configHttpConnection(PORT, HTDOCS)) == NULL) {
-        perror("Error configuring HTTP connection");
+        perror("[ERROR] Error configuring HTTP connection");
         return -1;
     }
-    printf("HTTP server listening on port %d, press Ctrl+C to abort.\n", PORT);
-    while (!quit) {
-        if (listenHttpRequest(config) < 0) {
-            perror("Error handling incomming HTTP request");
+    printf("[INFO] HTTP server listening on port %d, press Ctrl+C to abort.\n", PORT);
+    for (i = 0; i < NUM_THREADS; i++) {
+        if (pthread_create(&threadPool[i], NULL, listenHttpRequest, (void *)config)) {
+            perror("[ERROR] Error creating thread");
+            return -1;
         }
     }
-    printf("Shutdown HTTP server...\n");
+    for (i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threadPool[i], NULL);
+    }
+    printf("[INFO] Closing HTTP connection...\n");
     closeHttpConnection(config);
-    printf("Done.\n");
-
+    printf("[INFO] Done.\n");
+    printf("[INFO] Bye!\n");
     return 0;
 }
 
-void shutdownServer() {
-    quit = 1;
+void cancelAllThreads() {
+    int i;
+
+    printf("\n[INFO] Shut down all working threads...\n");
+    for (i = 0; i < NUM_THREADS; i++) {
+        pthread_cancel(threadPool[i]);
+    }
+    printf("[INFO] Done.\n");
 }

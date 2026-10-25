@@ -7,10 +7,10 @@ typedef struct {
     int                 socketDescriptor;
     struct sockaddr_in  address;
     char                *htdocs;
-} HttpConfig;
+} HttpConn;
 
-HttpConfig *configHttpConnection(int, char*);
-int closeHttpConnection(HttpConfig*);
+int openHttpConnection(HttpConn*, int, char*);
+int closeHttpConnection(HttpConn*);
 void *listenHttpRequest(void*);
 
 #endif

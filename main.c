@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/socket.h>  // Añadido para las conexiones fantasma
+#include <netinet/in.h>  // Añadido para las conexiones fantasma
+#include <arpa/inet.h>   // Añadido para las conexiones fantasma
 #include "http.h"
 
 // Basic config:
@@ -12,42 +15,49 @@
 
 void stop();
 
-pthread_t threadPool[THREAD_POOL_SIZE];
+pthread_t threadpool[THREAD_POOL_SIZE];
 volatile int run = 1;
 
 int main() {
-    HttpConn *conn;
+    struct http_conn conn;
     int i;
 
     if (signal(SIGINT, stop) == SIG_ERR) {
         perror("[ERROR] Error setting up Ctrl+C signal handler");
         return -1;
     }    
-    conn = (HttpConn*) malloc(sizeof(HttpConn));
-    if (openHttpConnection(conn, PORT, HTDOCS) < 0) {        
-        perror("[ERROR] Error connuring HTTP connection");
-        free(conn);
+    if (openhttpconn(&conn, PORT, HTDOCS) < 0) {        
+        perror("[ERROR] Error configuring HTTP connection");
         return -1;
     }
     printf("[INFO] HTTP server listening on port %d, press Ctrl+C to abort.\n", PORT);
     for (i = 0; i < THREAD_POOL_SIZE; i++) {
-        if (pthread_create(&threadPool[i], NULL, listenHttpRequest, (void *) conn)) {
+        if (pthread_create(&threadpool[i], NULL, listenhttpconn, &conn)) {
             perror("[ERROR] Error creating thread");
-            free(conn);
             return -1;
         }
     }
     while (run) {
         sleep(1);
     }
-    printf("\n[INFO] Shut down all working threads...\n");    
+    printf("[INFO] Shutting down: waking up all threads from accept()...\n");    
+    closehttpconn(&conn);
+    // review this part
     for (i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_cancel(threadPool[i]);
-        pthread_join(threadPool[i], NULL);
+        int dummy_socket = socket(AF_INET, SOCK_STREAM, 0);
+        if (dummy_socket >= 0) {
+            struct sockaddr_in dummy_addr;
+            dummy_addr.sin_family = AF_INET;
+            dummy_addr.sin_port = htons(PORT);
+            dummy_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+            connect(dummy_socket, (struct sockaddr*)&dummy_addr, sizeof(dummy_addr));
+            close(dummy_socket);
+        }
     }
-    printf("[INFO] Closing HTTP connection...\n");
-    closeHttpConnection(conn);
-    free(conn);
+    printf("[INFO] Joining threads...\n");
+    for (i = 0; i < THREAD_POOL_SIZE; i++) {
+        pthread_join(threadpool[i], NULL);
+    }
     printf("[INFO] Done.\n");
     printf("[INFO] Bye!\n");
     return 0;

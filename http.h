@@ -3,14 +3,14 @@
 
 #include <arpa/inet.h>
 
-typedef struct {
-    int                 socketDescriptor;
-    struct sockaddr_in  address;
-    char                *htdocs;
-} HttpConn;
+struct http_conn {
+    int                 socketfd;
+    struct sockaddr_in  addr;
+    char*               htdocs;
+};
 
-int openHttpConnection(HttpConn*, int, char*);
-int closeHttpConnection(HttpConn*);
-void *listenHttpRequest(void*);
+int openhttpconn(struct http_conn*, int, char*);
+int closehttpconn(struct http_conn*);
+void *listenhttpconn(void*);
 
 #endif

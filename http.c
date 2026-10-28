@@ -90,7 +90,6 @@ int sendHttpResponse(int socketClient, int statusCode, FILE *file, char *mimeTyp
             snprintf(buffer, BUFFER_SIZE, HTTP_500_TEMPLATE);
             write(socketClient, buffer, strlen(buffer));                
     }
-    close(socketClient);
     return 0;
 }
 
@@ -122,42 +121,42 @@ int closeHttpConnection(HttpConn *conn) {
 }
 
 void *listenHttpRequest(void *args) {
-    HttpConn *conn;  
-    int socketClient;
-    socklen_t addressLength;    
+    HttpConn *conn = (HttpConn*) args;
     char buffer[BUFFER_SIZE],
-         resource[PATH_SIZE];
-    FILE *file;
+         resource[PATH_SIZE],
+         filepath[PATH_SIZE];
     
-    conn = (HttpConn*) args;
-    addressLength = sizeof(conn->address);
     while (1) {
-        memset(buffer, '\0', sizeof(buffer));        
-        if ((socketClient = accept(conn->socketDescriptor, (struct sockaddr*)&conn->address, &addressLength)) < 0) {
-            perror("[ERROR] Error accepting incomming request");
-            sendHttpResponse(socketClient, 500, NULL, NULL);
+        socklen_t addressLength = sizeof(conn->address);
+        int socketClient = accept(conn->socketDescriptor, (struct sockaddr*) &conn->address, &addressLength);
+        if (socketClient < 0) {
+            perror("[ERROR] Error accepting incoming request");
             continue;
         }
-        if (read(socketClient, buffer, BUFFER_SIZE) < 0) {
-            perror("[ERROR] Error reading incomming request");
+        memset(buffer, '\0', sizeof(buffer));
+        if (read(socketClient, buffer, BUFFER_SIZE - 1) < 0) {
+            perror("[ERROR] Error reading incoming request");
             sendHttpResponse(socketClient, 500, NULL, NULL);
+            close(socketClient);
             continue;
-        }        
+        }
         if (getUrlResource(buffer, resource, PATH_SIZE) < 0) {
             perror("[ERROR] Error getting URL resource");
             sendHttpResponse(socketClient, 500, NULL, NULL);
+            close(socketClient);
             continue;
         }
         printf("[INFO][worker-%ld] Receiving HTTP request: %s\n", (pthread_t) pthread_self(), resource);
-        char filepath[PATH_SIZE];        
         snprintf(filepath, PATH_SIZE, "%s%s", conn->htdocs, resource);
-        file = fopen(filepath, "rb");
+        FILE *file = fopen(filepath, "rb");
         if (!file) {
             fprintf(stderr, "[ERROR] Error reading file: %s\n", filepath);
             sendHttpResponse(socketClient, 404, NULL, NULL);
+            close(socketClient);
             continue;
         }
         sendHttpResponse(socketClient, 200, file, getMimeType(resource));
+        close(socketClient);
         fclose(file);
     }
     return NULL;
